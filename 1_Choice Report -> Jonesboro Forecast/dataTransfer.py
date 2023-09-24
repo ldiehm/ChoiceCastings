@@ -1,4 +1,3 @@
-from math import nan
 import PySimpleGUI as sg
 import pandas as pd
 import openpyxl
@@ -9,10 +8,7 @@ from tkinter import font
 
 class Application:
 
-    def __init__(self, appName, sourceFile, sourceFileColumns, targetFile, targetFileColumns, savedFileName):
-        # Choice Report -> VS Report  ------ sourceFile
-        # Jonesboro Forecast -> Stocking Summary --- targetFile
-        self.savedFileName = savedFileName
+    def __init__(self, appName, sourceFile, sourceFileColumns, targetFile, targetFileColumns, source_WIP_name):
 
         self.sourceFileName = sourceFile
         self.targetFileName = targetFile
@@ -26,28 +22,43 @@ class Application:
         self.sourceFileColumns = sourceFileColumns
         self.targetFileColumns = targetFileColumns
 
-        
+        self.source_WIP_name = source_WIP_name
+
+        self.target_column_indices = None
+
         self.layout = [
-            # [sg.Button(f'Open {sourceFile}'), sg.Button(f'Open {targetFile}'), sg.Button('Do Data transfer')],
-            [sg.Checkbox("Check this box", default=False, key="checkbox_key")],
+            [sg.Button(f'Open {sourceFile}'), sg.Button(f'Open {targetFile}'), sg.Button('Do Data transfer')],
+            [sg.Checkbox("Transfer WIP?", default=False, key="WIP_checkbox")],
             [sg.Text(size=(40, 1), key='-OUTPUT-')],
         ]
         self.window = sg.Window(appName, self.layout)
 
+    # Reading excel file based on passed in path.
     def read_excel_file(self, file_name):
         try:
-            data = pd.read_excel(file_name)
+            data = pd.read_excel(file_name, sheet_name = 0)
             
         except:
             self.window['-OUTPUT-'].update(f'Invalid file for {file_name}.')
             return None
         return data
-
+    
+    # Getting the WIP column header. These are often misnamed, so we get this header in a special way.
+    def find_WIP_header(self, column_headers):
+        for header in column_headers:
+            if "WIP" in header:
+                print(header)
+                return header
+    
+    # Getting all data to be transferred based on what was specified as input.
     def get_requested_data(self, data, columns_to_transfer):
         
         column_indices = []
         column_headers = data.keys().tolist()
-        print(column_headers)
+
+        if(self.do_WIP):
+            columns_to_transfer.append(self.find_WIP_header(column_headers))              
+
         for column_name in columns_to_transfer:
             column_indices.append(column_headers.index(column_name))
         dataColumns = data.columns[column_indices]
@@ -55,24 +66,25 @@ class Application:
 
         return all_requested_data
     
+    # Getting the indices for all relevant columns. This is important for storing data in output later.
     def get_column_indices(self, data, headers):
         columnNames = data.keys().tolist()
         columnIndices = []
-        for headerNum in headers:
-            columnIndices.append(columnNames.index(headers[headerNum]))
+        for header in headers:
+            columnIndices.append(columnNames.index(header))
         return columnIndices
     
+    # Getting all required data without part numbers.
     def get_data_except_part_numbers(self, data, columnNames):
         
         notNumpyArray = []
-        print(data)
         indexArray = range(1, len(columnNames))
         for ind in indexArray:
             notNumpyArray.append(data[columnNames[ind]])
         data_without_partNumbers = np.array(notNumpyArray)
-        # data_without_partNumbers = np.array([data[headers[1]].tolist(), data[headers[2]].tolist(), data[headers[3]].tolist(), data[headers[4]].tolist(), data[headers[5]].tolist()])
         return data_without_partNumbers
         
+    # Getting the part numbers
     def get_part_numbers(self, data, columnNames):
         part_numbers = []
         
@@ -88,61 +100,35 @@ class Application:
         return folders[-1]
         
     def read_data_files(self):
-
+        #Getting all data from both source and target data files.
+        # Source = file from which data is transferred. Target = file to which data is transferred.
         allSourceData = self.read_excel_file(self.sourceFile_path)
-
         allTargetData = self.read_excel_file(self.targetFile_path)     
 
-        ## Here we are constructing the data columns into CR and JF. Part number not included in this big array of arrays.
-        #Need to make CR -> VS R
-        # self.sourceFileColumns = ["ICPROD","Total On Hand","On Order","Consigned","Required","SumOfWIP"] #REMOVE EVENTUALLY
-
+        # Getting necessary data including part numbers
         requestedSourceData = self.get_requested_data(allSourceData, self.sourceFileColumns)
-#
-        # column_headers = data_VSR.keys().tolist()
-        # CR_columns_to_transfer = [column_headers.index(VSR_column_names[0]), column_headers.index(VSR_column_names[1]), column_headers.index(VSR_column_names[2]), column_headers.index(VSR_column_names[3]), column_headers.index(VSR_column_names[4]), column_headers.index(VSR_column_names[5])]
-        # Headers_CR = data_VSR.columns[CR_columns_to_transfer] 
-#
-
-        # self.targetFileColumns = ["Part Number","CURRENT Inventory","CURR. Orders","KBM Cons.","CURRENT REQMNT.", "WIP"]
-
         requestedTargetData = self.get_requested_data(allTargetData, self.targetFileColumns)
 
-        # column_headers = data_SS.keys().tolist()
-        # self.JF_columns_to_transfer = [column_headers.index(self.SS_column_names[0]), column_headers.index(self.SS_column_names[1]), column_headers.index(self.SS_column_names[2]), column_headers.index(self.SS_column_names[3]), column_headers.index(self.SS_column_names[4]), column_headers.index(self.SS_column_names[5])]
-        # Headers_JF = data_SS.columns[self.JF_columns_to_transfer] # part number, current inventory, current orders, KBM const, current demand, WIP
-
-        ## Here we are making a list of lists of all the part data. Part numbers NOT included for this one. Part numbers are stored in part_numbers_existing_in_JF and part_number_ChoiceReport
+        # Getting the column indices of the target file - important for storing data later in output file
+        self.target_column_indices = self.get_column_indices(allTargetData, self.targetFileColumns)
         
-        
-        #CR = np.array([all_data_VSR[Headers_CR[1]].tolist(), data_CR[Headers_CR[2]].tolist(), data_CR[Headers_CR[3]].tolist(), data_CR[Headers_CR[4]].tolist(), data_CR[Headers_CR[5]].tolist()])
-        #JF = np.array([data_JF[Headers_JF[1]].tolist(), data_JF[Headers_JF[2]].tolist(), data_JF[Headers_JF[3]].tolist(), data_JF[Headers_JF[4]].tolist(), data_JF[Headers_JF[5]].tolist()])
+        #Getting the data to be transferred without not including the part numbers.
         sourceDataNoPartNumbers = self.get_data_except_part_numbers(requestedSourceData, self.sourceFileColumns)
-
         targetDataNoPartNumbers = self.get_data_except_part_numbers(requestedTargetData, self.targetFileColumns)
 
         ## This is making the part numbers array from Jonesboro Forecast, ensuring no whitespace.
-
         sourcePartNumbers = self.get_part_numbers(requestedSourceData, self.sourceFileColumns)
         targetPartNumbers = self.get_part_numbers(requestedTargetData, self.targetFileColumns)
 
-        # part_numbers_existing_in_JF = []
-        # for cell in data_JF[Headers_JF[0]].tolist():
-        #     if not pd.isnull(cell):
-        #         cell = cell.strip()
-        #     part_numbers_existing_in_JF.append(cell)
-
-        ## Now we begin the iterating process through the whole excel sheet. Each part will be read from the Choice Report and searched for in the Jonesboro Forecast.
+        ## Now we begin the iterating process through the whole excel sheet. Each part will be read 
+        # from the source file and the target file, and their values will be compared. Differences 
+        # between the values will be recorded..
         self.parts_changed = []
         self.parts_not_found = []
         is_changed = False
-        #We dont do the same part number array building in the Choice Report, so I strip each part number in the for loop as they're read to ensure no white space.
-        # data_CR[Headers_CR[0]].tolist()
 
         for ind, part_number in enumerate(sourcePartNumbers):
             
-            # part_number = part_number.strip()/
-
             if part_number in targetPartNumbers:
                 is_changed = False
                 part_changes = []
@@ -175,37 +161,38 @@ class Application:
 
         return
 
-    #output is Stocking Summary in this case
     def write_to_output(self):
-        self.targetFileColumns.pop(0)
 
         workbook = openpyxl.load_workbook(self.targetFile_path)
-        sheet = workbook.active
+        sheet = workbook.worksheets[0]
 
         for part in self.parts_changed:
             part_number = part[0]
+            Row = part_number[1]
 
             for change_in_quantity in part[1:]:
-                Row = part_number[1] + 1
-                Col = change_in_quantity[0] + 1
-                cell = sheet.cell(row = Row, column = Col)
-
+                Col = self.target_column_indices[change_in_quantity[0] + 1]
+                cell = sheet.cell(row = Row + 1, column = Col + 1)
                 cell.value = change_in_quantity[2]
 
-        workbook.save(self.save_file_name + "_result")
+        workbook.save("results_" + self.save_file_name)
         workbook.close()
 
     def print_output(self):
+        
+        built_string = f"The following columns were transferred from {self.sourceFileName} to {self.targetFileName}:\n"
 
-        built_string = "Parts changed:\n"
+        for ind in range(len(self.targetFileColumns) - 1):
+            ind += 1
+            built_string += f"\"{self.sourceFileColumns[ind]}\" -> \"{self.targetFileColumns[ind]}\"\n"
+        
+        built_string += "\nSpecific changes:\n"
         # Adding text based on changed values
         for changed_part in self.parts_changed:
             part_num = changed_part.pop(0)
-            print(changed_part)
             built_string += "\n" + str(part_num[0]) + ": "
             number_for_spacing_output = 0
             for change in changed_part:
-                print(change)
                 built_string += str(self.targetFileColumns[change[0] + 1]) + " changed from " + str(change[1]) + " to " + str(change[2]) + ". "
                 number_for_spacing_output += 1
                 if number_for_spacing_output == 2:
@@ -216,7 +203,7 @@ class Application:
         built_string += "\n\nParts not found:\n"
 
         for part in self.parts_not_found:
-            built_string += f"\nDid not found part {part[0]} in {self.targetFileName}. This part was not updated. \nThis part was seen at position {str(part[1] + 2)} in {self.targetFileName}\n"
+            built_string += f"\nDid not found part {part[0]} in {self.targetFileName}. This part was not updated. \nThis part was seen at row {str(part[1] + 2)} in {self.sourceFileName}\n"
         # Create the main window
         root = tk.Tk()
 
@@ -246,7 +233,7 @@ class Application:
     def run(self):
 
         while True:
-            event, _ = self.window.read()
+            event, values = self.window.read()
             
             if event == sg.WIN_CLOSED or event == 'Exit':
                 break
@@ -271,7 +258,7 @@ class Application:
                 if not self.targetFile_path:
                     self.window['-OUTPUT-'].update(f'Need valid file for {self.targetFileName}.')
                     continue
-
+                self.do_WIP = values['WIP_checkbox']
                 self.save_file_name = self.get_save_file_name()
                 self.read_data_files()
                 self.write_to_output()
@@ -280,5 +267,5 @@ class Application:
                 
 if __name__ == "__main__":
 
-    app = Application(appName= "Jonesboro Forecast Data Transfer", sourceFile= 'VS Report', sourceFileColumns= ["ICPROD", "Total On Hand","Consigned", "Required", "SumOfWIP"], targetFile= 'Stocking Summary', targetFileColumns=["T&B     Part #", "Total Inv:  JBS & T&B", "VS Cons  On Hand", "Current Demand", "WIP"], savedFileName= 'VS Stocking Summary.xlsx')
+    app = Application(appName= "Jonesboro Forecast Data Transfer", sourceFile= 'VS Report', sourceFileColumns= ["ICPROD", "Total On Hand","Consigned", "Required"], targetFile= 'Stocking Summary', targetFileColumns=["T&B     Part #", "Total Inv:  JBS & T&B", "VS Cons  On Hand", "Current Demand"], source_WIP_name = "SumOfWIP")
     app.run()
